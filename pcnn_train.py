@@ -24,9 +24,12 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     loss_tracker = mean_tracker()
 
     for batch_idx, (model_input, labels) in enumerate(tqdm(data_loader)):
-        model_input, labels = model_input.to(device), labels.to(device)
+        # Ensure the data is in tensor format
+        model_input = torch.tensor(model_input, dtype=torch.float32).to(device)
+        labels = torch.tensor(labels, dtype=torch.long).to(device)  # Assuming labels are of integer type
+        
         model_output = model(model_input, labels)
-        loss = loss_op(model_input, model_output, labels)  # Modify loss_op to include labels if necessary
+        loss = loss_op(model_input, model_output, labels)
         loss_tracker.update(loss.item() / deno)
         if mode == 'training':
             optimizer.zero_grad()
