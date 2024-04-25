@@ -52,8 +52,9 @@ class PixelCNNLayer_down(nn.Module):
 
 class PixelCNN(nn.Module):
     def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
-                    resnet_nonlinearity='concat_elu', input_channels=3):
+                    resnet_nonlinearity='concat_elu', input_channels=3, num_classes=10):
         super(PixelCNN, self).__init__()
+        self.label_emb = nn.Embedding(num_classes, nr_filters)
         if resnet_nonlinearity == 'concat_elu' :
             self.resnet_nonlinearity = lambda x : concat_elu(x)
         else :
@@ -97,7 +98,12 @@ class PixelCNN(nn.Module):
         self.init_padding = None
 
 
-    def forward(self, x, sample=False):
+    def forward(self, x, labels, sample=False):
+        label_features = self.label_emb(labels)[:, :, None, None]
+        label_features = label_features.expand(-1, -1, x.size(2), x.size(3))
+        
+        # Combine label features with input
+        x = torch.cat([x, label_features], dim=1)
         # similar as done in the tf repo :
         if self.init_padding is not sample:
             xs = [int(y) for y in x.size()]
