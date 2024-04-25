@@ -19,8 +19,16 @@ NUM_CLASSES = len(my_bidict)
 # And get the predicted label, which is a tensor of shape (batch_size,)
 # Begin of your code
 def get_label(model, model_input, device):
-    answer = model(model_input, device)
-    return answer
+    # Ensure the input is on the correct device.
+    model_input = model_input.to(device)
+    
+    # Get the logits from the model's forward pass.
+    logits = model(model_input)
+    
+    # Assuming the output logits are of shape (batch_size, num_classes), get the predicted classes.
+    predicted_labels = torch.argmax(logits, dim=1)
+    
+    return predicted_labels
 # End of your code
 
 def classifier(model, data_loader, device):
@@ -64,7 +72,8 @@ if __name__ == '__main__':
     #Write your code here
     #You should replace the random classifier with your trained model
     #Begin of your code
-    model = random_classifier(NUM_CLASSES)
+    model = PixelCNN(nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
+                     resnet_nonlinearity='concat_elu', input_channels=3, num_classes=NUM_CLASSES)
     #End of your code
     
     model = model.to(device)
