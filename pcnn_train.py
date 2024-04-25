@@ -14,28 +14,32 @@ import argparse
 from pytorch_fid.fid_score import calculate_fid_given_paths
 
 
-def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, mode = 'training'):
+def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, mode='training'):
     if mode == 'training':
         model.train()
     else:
         model.eval()
-        
-    deno =  args.batch_size * np.prod(args.obs) * np.log(2.)        
+
+    deno = args.batch_size * np.prod(args.obs) * np.log(2.)
     loss_tracker = mean_tracker()
-    
-    for batch_idx, item in enumerate(tqdm(data_loader)):
-        model_input, _ = item
+
+    for batch_idx, (model_input, labels) in enumerate(tqdm(data_loader)):
         model_input = model_input.to(device)
-        model_output = model(model_input)
-        loss = loss_op(model_input, model_output)
-        loss_tracker.update(loss.item()/deno)
+        labels = labels.to(device)
+
         if mode == 'training':
             optimizer.zero_grad()
+
+        model_output = model(model_input)
+        loss = loss_op(model_output, labels)
+        loss_tracker.update(loss.item() / deno)
+
+        if mode == 'training':
             loss.backward()
             optimizer.step()
-        
+
     if args.en_wandb:
-        wandb.log({mode + "-Average-BPD" : loss_tracker.get_mean()})
+        wandb.log({mode + "-Average-BPD": loss_tracker.get_mean()})
         wandb.log({mode + "-epoch": epoch})
 
 if __name__ == '__main__':
