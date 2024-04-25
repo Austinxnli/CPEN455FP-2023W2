@@ -52,9 +52,8 @@ class PixelCNNLayer_down(nn.Module):
 
 class PixelCNN(nn.Module):
     def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
-                    resnet_nonlinearity='concat_elu', input_channels=3, num_classes=10):
+                    resnet_nonlinearity='concat_elu', input_channels=3):
         super(PixelCNN, self).__init__()
-        self.num_classes = num_classes
         if resnet_nonlinearity == 'concat_elu' :
             self.resnet_nonlinearity = lambda x : concat_elu(x)
         else :
@@ -98,16 +97,7 @@ class PixelCNN(nn.Module):
         self.init_padding = None
 
 
-    def forward(self, x, labels, sample=False):
-        # Convert labels to one-hot encoding
-        labels_one_hot = torch.nn.functional.one_hot(labels, num_classes=self.num_classes).type_as(x).float()
-        
-        # Expand labels to match the batch size and spatial dimensions of x
-        labels_one_hot = labels_one_hot.unsqueeze(2).unsqueeze(3).expand(-1, -1, x.size(2), x.size(3))
-        
-        # Concatenate labels with the input tensor along the channel dimension
-        x = torch.cat((x, labels_one_hot), dim=1)
-        
+    def forward(self, x, sample=False):
         # similar as done in the tf repo :
         if self.init_padding is not sample:
             xs = [int(y) for y in x.size()]
