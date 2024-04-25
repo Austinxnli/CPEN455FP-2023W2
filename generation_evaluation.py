@@ -34,7 +34,7 @@ if __name__ == "__main__":
         os.makedirs(gen_data_dir)
     #Begin of your code
     #Load your model and generate images in the gen_data_dir
-    model = PixelCNN(nr_resnet=1, nr_filters=40, input_channels=3, nr_logistic_mix=5).to(device).eval()
+    model = PixelCNN(nr_resnet=5, nr_filters=80, nr_logistic_mix=10, input_channels=3, num_classes=10).to(device).eval()
     model = model.to(device)
     model = model.eval()
     my_sample(model=model, gen_data_dir=gen_data_dir)
