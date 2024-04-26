@@ -13,7 +13,6 @@ from pprint import pprint
 import argparse
 from pytorch_fid.fid_score import calculate_fid_given_paths
 
-
 def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, mode = 'training'):
     if mode == 'training':
         model.train()
@@ -22,30 +21,43 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
         
     deno =  args.batch_size * np.prod(args.obs) * np.log(2.)        
     loss_tracker = mean_tracker()
+    val_acc = ratio_tracker()
+    #test_acc = ratio_tracker()
     
     for batch_idx, item in enumerate(tqdm(data_loader)):
-        model_input, categories = item
+        model_input, label = item # modified to take label and pass it to the model
         model_input = model_input.to(device)
 
-        # Use fixed label for test set
-        if mode == 'test':
-            class_labels = torch.full((args.batch_size,), 0).to(device)
-        else:
-            # Convert categories to labels
-            class_labels = [my_bidict[item] for item in categories]
-            class_labels = torch.tensor(class_labels, dtype=torch.int64).to(device)
+        B = model_input.shape[0]
 
-        model_output = model(model_input, class_labels)
-        loss = loss_op(model_input, model_output)
-        loss_tracker.update(loss.item()/deno)
-        if mode == 'training':
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+        if mode == 'test':
+            y_pred, y_losses = model.classify(model_input, len(my_bidict))
+            y_losses = y_losses.to(device)
+            loss_tracker.update(torch.sum(y_losses).item()/deno)
+            # calculate losses to not divide by zero
+        else:
+            model_output = model(model_input, label)
+            loss = loss_op(model_input, model_output)
+            loss_tracker.update(loss.item()/deno)
+            if mode == 'training':
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            else: # mode == val
+                original_label = [my_bidict[item] for item in label]
+                original_label = torch.tensor(original_label, dtype=torch.int64).to(device)
+
+                y_pred, y_losses = model.classify(model_input, len(my_bidict))
+                y_pred = y_pred.to(device)
+                val_acc.update(torch.sum(y_pred == original_label).item(), B)
         
     if args.en_wandb:
         wandb.log({mode + "-Average-BPD" : loss_tracker.get_mean()})
         wandb.log({mode + "-epoch": epoch})
+        if mode == 'val':
+            wandb.log({mode + "-val-accuracy" : val_acc.get_ratio()})
+        # elif mode == 'test':
+        #     wandb.log({mode + "-test-accuracy" : test_acc.get_ratio()})
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -75,11 +87,11 @@ if __name__ == '__main__':
                         help='Observation shape')
     
     # model
-    parser.add_argument('-q', '--nr_resnet', type=int, default=1,
+    parser.add_argument('-q', '--nr_resnet', type=int, default=5,
                         help='Number of residual blocks per stage of the model')
-    parser.add_argument('-n', '--nr_filters', type=int, default=40,
+    parser.add_argument('-n', '--nr_filters', type=int, default=160,
                         help='Number of filters to use across the model. Higher = larger model.')
-    parser.add_argument('-m', '--nr_logistic_mix', type=int, default=5,
+    parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10,
                         help='Number of logistic components in the mixture. Higher = more flexible model')
     parser.add_argument('-l', '--lr', type=float,
                         default=0.0002, help='Base learning rate')
@@ -128,8 +140,7 @@ if __name__ == '__main__':
 
     #set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
-    kwargs = {'num_workers':0, 'pin_memory':True, 'drop_last':True}
+    kwargs = {'num_workers':1, 'pin_memory':True, 'drop_last':True}
 
     # set data
     if "mnist" in args.dataset:
@@ -192,7 +203,7 @@ if __name__ == '__main__':
     model = model.to(device)
 
     if args.load_params:
-        model.load_state_dict(torch.load(args.load_params))
+        model.load_state_dict(torch.load(args.load_params, map_location=device))
         print('model parameters loaded')
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
@@ -210,14 +221,14 @@ if __name__ == '__main__':
         
         # decrease learning rate
         scheduler.step()
-        # train_or_test(model = model,
-        #               data_loader = test_loader,
-        #               optimizer = optimizer,
-        #               loss_op = loss_op,
-        #               device = device,
-        #               args = args,
-        #               epoch = epoch,
-        #               mode = 'test')
+        train_or_test(model = model,
+                      data_loader = test_loader,
+                      optimizer = optimizer,
+                      loss_op = loss_op,
+                      device = device,
+                      args = args,
+                      epoch = epoch,
+                      mode = 'test')
         
         train_or_test(model = model,
                       data_loader = val_loader,
@@ -230,12 +241,11 @@ if __name__ == '__main__':
         
         if epoch % args.sampling_interval == 0:
             print('......sampling......')
-
-            # Sample over all classes
-            for label in range(4):
+            for label in my_bidict.keys():
+                label = (label,) * args.sample_batch_size
                 sample_t = sample(model, label, args.sample_batch_size, args.obs, sample_op)
                 sample_t = rescaling_inv(sample_t)
-                save_images(sample_t, args.sample_dir, label)
+                save_images(sample_t, args.sample_dir)
                 sample_result = wandb.Image(sample_t, caption="epoch {}".format(epoch))
             
             gen_data_dir = args.sample_dir
@@ -246,14 +256,12 @@ if __name__ == '__main__':
                 print("Dimension {:d} works! fid score: {}".format(192, fid_score))
             except:
                 print("Dimension {:d} fails!".format(192))
-
+                
             if args.en_wandb:
-                    wandb.log({"samples": sample_result,
-                                "FID": fid_score})
+                wandb.log({"samples": sample_result,
+                            "FID": fid_score})
         
         if (epoch + 1) % args.save_interval == 0: 
             if not os.path.exists("models"):
                 os.makedirs("models")
             torch.save(model.state_dict(), 'models/{}_{}.pth'.format(model_name, epoch))
-    # Save completed model
-    torch.save(model.state_dict(), 'models/conditional_pixelcnn.pth')

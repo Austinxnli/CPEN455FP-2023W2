@@ -19,18 +19,8 @@ NUM_CLASSES = len(my_bidict)
 # And get the predicted label, which is a tensor of shape (batch_size,)
 # Begin of your code
 def get_label(model, model_input, device):
-    B, D, H, W = model_input.shape
-    log_probs = torch.zeros((NUM_CLASSES, B))
-
-    # label is the class label
-    for label in range(NUM_CLASSES):
-        labels = torch.full((B,), label)
-        answer = model(model_input, labels, device)
-        log_probs[label] = log_prob_conditional_per_batch_elem(model_input, answer)
-
-    classifications = torch.argmax(log_probs, dim=0)
-
-    return classifications
+    answer, _ = model.classify(model_input, len(my_bidict))
+    return answer
 # End of your code
 
 def classifier(model, data_loader, device):
@@ -74,13 +64,14 @@ if __name__ == '__main__':
     #Write your code here
     #You should replace the random classifier with your trained model
     #Begin of your code
-    model = PixelCNN(nr_resnet=1, nr_filters=40, input_channels=3, nr_logistic_mix=5)
+    model = PixelCNN(nr_resnet=2, nr_filters=40, 
+            input_channels=3, nr_logistic_mix=5)
     #End of your code
     
     model = model.to(device)
     #Attention: the path of the model is fixed to 'models/conditional_pixelcnn.pth'
     #You should save your model to this path
-    model.load_state_dict(torch.load('models/conditional_pixelcnn_50_epochs.pth', map_location=torch.device('cpu')))
+    model.load_state_dict(torch.load('models/conditional_pixelcnn.pth', map_location=device)) # MODIFICATION TO RUN ON CPU IF TRAINED ON GPU
     model.eval()
     print('model parameters loaded')
     acc = classifier(model = model, data_loader = dataloader, device = device)
