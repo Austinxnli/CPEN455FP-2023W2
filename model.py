@@ -140,19 +140,14 @@ class PixelCNN(nn.Module):
                 u_list  += [self.downsize_u_stream[i](u_list[-1])]
                 ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
 
-        # Fuse labels encodings after down pass 
-        B, D, H, W = ul_list[0].shape
+        B, D, _, _ = ul_list[0].shape
 
-        class_embeddings = torch.zeros(B, 1, D)
-        for i in range(B):
-            # use D dimension for one-hot class label
-            class_embeddings[i][0][labels[i]] = 1
+        class_embeddings = torch.zeros(B, 1, D, device=ul_list[0].device)
+        class_embeddings[range(B), 0, labels] = 1
 
         positional_encoding = self.class_encoding(class_embeddings)
 
-        # Make positional_encoding B x D x 1 x 1
-        positional_encoding = positional_encoding.permute(0,2,1)
-        positional_encoding = positional_encoding.unsqueeze(3)
+        positional_encoding = positional_encoding.permute(0, 2, 1).unsqueeze(3)
 
         for j in range(len(ul_list)):
             # Add positional encoding to encoding layer
