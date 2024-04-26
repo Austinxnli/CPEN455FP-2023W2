@@ -49,7 +49,7 @@ class PixelCNNLayer_down(nn.Module):
 
         return u, ul
 
-# Using PA2 as referrence, not great but does the job?
+# Using PA2 as referrence, not great accuracy but does the job?
 class AbsolutePositionalEncoding(nn.Module):
     MAX_LEN = 256
     
@@ -59,6 +59,7 @@ class AbsolutePositionalEncoding(nn.Module):
         nn.init.normal_(self.W)
 
     def forward(self, x):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         B, N, D = x.shape
         device = x.device
         return x + self.W[:N].to(device)
