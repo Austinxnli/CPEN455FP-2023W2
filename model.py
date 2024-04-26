@@ -115,58 +115,68 @@ class PixelCNN(nn.Module):
         self.class_encoding = AbsolutePositionalEncoding(nr_filters)
 
 
-def forward(self, x, class_labels, sample=False):
-    # Initialize padding if necessary:
-    if self.init_padding is not sample:
-        xs = [int(y) for y in x.size()]
-        padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
-        self.init_padding = padding.cuda() if x.is_cuda else padding
+    def forward(self, x, class_labels, sample=False):
+        # similar as done in the tf repo :
+        if self.init_padding is not sample:
+            xs = [int(y) for y in x.size()]
+            padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
+            self.init_padding = padding.cuda() if x.is_cuda else padding
 
-    # Add padding for sampling:
-    if sample:
-        xs = [int(y) for y in x.size()]
-        padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
-        padding = padding.cuda() if x.is_cuda else padding
-        x = torch.cat((x, padding), 1)
+        if sample :
+            xs = [int(y) for y in x.size()]
+            padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
+            padding = padding.cuda() if x.is_cuda else padding
+            x = torch.cat((x, padding), 1)
 
-    # Forward pass with or without sampling:
-    x = x if sample else torch.cat((x, self.init_padding), 1)
-    u_list = [self.u_init(x)]
-    ul_list = [self.ul_init[0](x) + self.ul_init[1](x)]
+        ###      UP PASS    ###
+        x = x if sample else torch.cat((x, self.init_padding), 1)
+        u_list  = [self.u_init(x)]
+        ul_list = [self.ul_init[0](x) + self.ul_init[1](x)]
+        for i in range(3):
+            # resnet block
+            u_out, ul_out = self.up_layers[i](u_list[-1], ul_list[-1])
+            u_list  += u_out
+            ul_list += ul_out
 
-    for i in range(3):
-        u_out, ul_out = self.up_layers[i](u_list[-1], ul_list[-1])
-        u_list += [u_out]
-        ul_list += [ul_out]
+            if i != 2:
+                # downscale (only twice)
+                u_list  += [self.downsize_u_stream[i](u_list[-1])]
+                ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
 
-        if i != 2:
-            u_list += [self.downsize_u_stream[i](u_list[-1])]
-            ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
+        # Fuse labels encodings after down pass 
+        B, D, H, W = ul_list[0].shape
 
-    # Positional encoding:
-    B, D, H, W = ul_list[0].shape
-    class_embeddings = torch.zeros(B, D, 1).scatter_(1, class_labels.view(B, 1, 1), 1).to(x.device)
-    positional_encoding = self.class_encoding(class_embeddings.unsqueeze(-1)).permute(0, 2, 1, 3)
+        class_embeddings = torch.zeros(B, 1, D)
+        for i in range(B):
+            class_embeddings[i][0][class_labels[i]] = 1
 
-    for j in range(len(ul_list)):
-        ul_list[j] += positional_encoding
-        u_list[j] += positional_encoding
+        positional_encoding = self.class_encoding(class_embeddings)
+        positional_encoding = positional_encoding.permute(0,2,1)
+        positional_encoding = positional_encoding.unsqueeze(3)
 
-    # Downward pass:
-    u, ul = u_list.pop(), ul_list.pop()
+        for j in range(len(ul_list)):
+            # Add positional encoding to encoding layer
+            ul_list[j] += positional_encoding
+            u_list[j] += positional_encoding
 
-    for i in range(3):
-        u, ul = self.down_layers[i](u, ul, u_list, ul_list)
+        ###    DOWN PASS    ###
+        u  = u_list.pop()
+        ul = ul_list.pop()
 
-        if i != 2:
-            u = self.upsize_u_stream[i](u)
-            ul = self.upsize_ul_stream[i](ul)
+        for i in range(3):
+            # resnet block
+            u, ul = self.down_layers[i](u, ul, u_list, ul_list)
 
-    x_out = self.nin_out(F.elu(ul))
+            # upscale (only twice)
+            if i != 2 :
+                u  = self.upsize_u_stream[i](u)
+                ul = self.upsize_ul_stream[i](ul)
 
-    assert len(u_list) == len(ul_list) == 0, pdb.set_trace()
+        x_out = self.nin_out(F.elu(ul))
 
-    return x_out
+        assert len(u_list) == len(ul_list) == 0, pdb.set_trace()
+
+        return x_out
     
 
 class random_classifier(nn.Module):
