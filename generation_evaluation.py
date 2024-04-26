@@ -16,14 +16,12 @@ import torch
 # This function should save the generated images to the gen_data_dir, which is fixed as 'samples'
 # Begin of your code
 sample_op = lambda x : sample_from_discretized_mix_logistic(x, 5)
-def my_sample(model, gen_data_dir, sample_batch_size = 25, obs = (3,32,32), sample_op = sample_op):
+def my_sample(model, gen_data_dir, sample_batch_size=25, obs=(3, 32, 32), sample_op=sample_op):
     for label in my_bidict.values():
         print(f"Label: {label}")
-        #generate images for each label, each label has 25 images
         sample_t = sample(model, label, sample_batch_size, obs, sample_op)
         sample_t = rescaling_inv(sample_t)
         save_images(sample_t, os.path.join(gen_data_dir), label=label)
-    pass
 # End of your code
 
 if __name__ == "__main__":

@@ -177,17 +177,16 @@ def right_shift(x, pad=None):
 
 
 def sample(model, label, sample_batch_size, obs, sample_op):
-    model.train(False)
-    class_labels = torch.full((sample_batch_size,), label).to(next(model.parameters()).device)
+    model.eval()
+    labels = torch.full((sample_batch_size,), label).to(next(model.parameters()).device)
     with torch.no_grad():
-        data = torch.zeros(sample_batch_size, obs[0], obs[1], obs[2])
-        data = data.to(next(model.parameters()).device)
+        data = torch.zeros(sample_batch_size, obs[0], obs[1], obs[2]).to(next(model.parameters()).device)
         for i in range(obs[1]):
             for j in range(obs[2]):
-                data_v = data
-                out   = model(data_v, class_labels, sample=True)
+                data_v = data.clone()
+                out = model(data_v, labels, sample=True)
                 out_sample = sample_op(out)
-                data[:, :, i, j] = out_sample.data[:, :, i, j]
+                data[:, :, i, j] = out_sample[:, :, i, j]
     return data
 
 class mean_tracker:
