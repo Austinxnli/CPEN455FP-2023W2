@@ -175,7 +175,9 @@ def right_shift(x, pad=None):
 
 
 def sample(model, sample_batch_size, obs, sample_op):
-    model.train(False)
+    device = next(model.parameters()).device
+    label = torch.full((sample_batch_size,), label, device=device)
+    model.eval()
     with torch.no_grad():
         data = torch.zeros(sample_batch_size, obs[0], obs[1], obs[2])
         data = data.to(next(model.parameters()).device)
