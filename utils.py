@@ -1,3 +1,4 @@
+
 import pdb
 import torch
 import torch.nn as nn
@@ -100,7 +101,7 @@ def discretized_mix_logistic_loss(x, l):
     
     return -torch.sum(log_sum_exp(log_probs))
 
-def discretized_mix_logistic_loss(x, l):
+def log_prob_conditional_per_batch_elem(x, l):
     """ log-likelihood for mixture of discretized logistics, assumes the data has been rescaled to [-1,1] interval """
     # Pytorch ordering
     x = x.permute(0, 2, 3, 1)

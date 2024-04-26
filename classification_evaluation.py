@@ -1,91 +1,55 @@
 '''
-This code is used to evaluate the classification accuracy of the trained model.
-You should at least guarantee this code can run without any error on validation set.
+This code is used to evaluate the FID score of the generated images.
+You should at least guarantee this code can run without any error on test set.
 And whether this code can run is the most important factor for grading.
-We provide the remaining code, all you should do are, and you can't modify the remaining code:
-1. Replace the random classifier with your trained model.(line 64-68)
-2. modify the get_label function to get the predicted label.(line 18-24)(just like Leetcode solutions)
+We provide the remaining code,  you can't modify the remaining code, all you should do are:
+1. Modify the sample function to get the generated images from the model and ensure the generated images are saved to the gen_data_dir(line 12-18)
+2. Modify how you call your sample function(line 31)
 '''
-from torchvision import datasets, transforms
+from pytorch_fid.fid_score import calculate_fid_given_paths
 from utils import *
 from model import * 
 from dataset import *
-from tqdm import tqdm
-from pprint import pprint
-import argparse
-NUM_CLASSES = len(my_bidict)
-
-# Write your code here
-# And get the predicted label, which is a tensor of shape (batch_size,)
+import os
+import torch
+# You should modify this sample function to get the generated images from your model
+# This function should save the generated images to the gen_data_dir, which is fixed as 'samples'
 # Begin of your code
-def get_label(model, model_input, device):
-    batch_size = model_input.shape[0]
-    
-    losses = torch.zeros(batch_size, NUM_CLASSES, device=device)
-
-    # Iterate through each possible label
-    for label in range(NUM_CLASSES):
-        labels = torch.full((batch_size,), label, dtype=torch.long, device=device)
-        logits = model(model_input, labels)
-        log_prob = discretized_mix_logistic_loss(model_input, logits, sum_all=False)
-        losses[:, label] = log_prob
-
-    # The argmin here gives the index of the label with the smallest loss, which is the predicted label
-    predictions = torch.argmin(losses, dim=1)
-
-    return predictions
+sample_op = lambda x : sample_from_discretized_mix_logistic(x, 5)
+def my_sample(model, gen_data_dir, sample_batch_size = 25, obs = (3,32,32), sample_op = sample_op):
+    for label in my_bidict.values():
+        print(f"Label: {label}")
+        #generate images for each label, each label has 25 images
+        sample_t = sample(model, label, sample_batch_size, obs, sample_op)
+        sample_t = rescaling_inv(sample_t)
+        save_images(sample_t, os.path.join(gen_data_dir), label=label)
+    pass
 # End of your code
 
-def classifier(model, data_loader, device):
-    model.eval()
-    acc_tracker = ratio_tracker()
-    for batch_idx, item in enumerate(tqdm(data_loader)):
-        model_input, categories = item
-        model_input = model_input.to(device)
-        original_label = [my_bidict[item] for item in categories]
-        original_label = torch.tensor(original_label, dtype=torch.int64).to(device)
-        answer = get_label(model, model_input, device)
-        correct_num = torch.sum(answer == original_label)
-        acc_tracker.update(correct_num.item(), model_input.shape[0])
+if __name__ == "__main__":
+    ref_data_dir = "data/test"
+    gen_data_dir = "samples"
+    BATCH_SIZE=128
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    return acc_tracker.get_ratio()
-        
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    
-    parser.add_argument('-i', '--data_dir', type=str,
-                        default='data', help='Location for the dataset')
-    parser.add_argument('-b', '--batch_size', type=int,
-                        default=32, help='Batch size for inference')
-    parser.add_argument('-m', '--mode', type=str,
-                        default='validation', help='Mode for the dataset')
-    
-    args = parser.parse_args()
-    pprint(args.__dict__)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    kwargs = {'num_workers':0, 'pin_memory':True, 'drop_last':False}
-
-    ds_transforms = transforms.Compose([transforms.Resize((32, 32)), rescaling])
-    dataloader = torch.utils.data.DataLoader(CPEN455Dataset(root_dir=args.data_dir, 
-                                                            mode = args.mode, 
-                                                            transform=ds_transforms), 
-                                             batch_size=args.batch_size, 
-                                             shuffle=True, 
-                                             **kwargs)
-
-    #Write your code here
-    #You should replace the random classifier with your trained model
+    if not os.path.exists(gen_data_dir):
+        os.makedirs(gen_data_dir)
     #Begin of your code
+    #Load your model and generate images in the gen_data_dir
     model = PixelCNN(nr_resnet=1, nr_filters=40, input_channels=3, nr_logistic_mix=5)
-    #End of your code
     model = model.to(device)
-    #Attention: the path of the model is fixed to 'models/conditional_pixelcnn.pth'
-    #You should save your model to this path
-    model.load_state_dict(torch.load('models/conditional_pixelcnn.pth', map_location=device))
-    model.eval()
-    print('model parameters loaded')
-    acc = classifier(model = model, data_loader = dataloader, device = device)
-    print(f"Accuracy: {acc}")
+    model = model.eval()
+    model.load_state_dict(torch.load('models/conditional_pixelcnn.pth'))
+    my_sample(model=model, gen_data_dir=gen_data_dir)
+    #End of your code
+    paths = [gen_data_dir, ref_data_dir]
+    print("#generated images: {:d}, #reference images: {:d}".format(
+        len(os.listdir(gen_data_dir)), len(os.listdir(ref_data_dir))))
+
+    try:
+        fid_score = calculate_fid_given_paths(paths, BATCH_SIZE, device, dims=192)
+        print("Dimension {:d} works! fid score: {}".format(192, fid_score, gen_data_dir))
+    except:
+        print("Dimension {:d} fails!".format(192))
         
-        
+    print("Average fid score: {}".format(fid_score))
