@@ -126,7 +126,7 @@ class PixelCNN(nn.Module):
         self.class_encoding = AbsolutePositionalEncoding(nr_filters)
 
 
-    def forward(self, x, labels, sample=False):
+    def forward(self, x, class_labels, sample=False):
         # similar as done in the tf repo :
         if self.init_padding is not sample:
             xs = [int(y) for y in x.size()]
@@ -160,7 +160,7 @@ class PixelCNN(nn.Module):
         class_embeddings = torch.zeros(B, 1, D)
         for i in range(B):
             # use D dimension for one-hot class label
-            class_embeddings[i][0][labels[i]] = 1
+            class_embeddings[i][0][class_labels[i]] = 1
 
         positional_encoding = self.class_encoding(class_embeddings)
 
