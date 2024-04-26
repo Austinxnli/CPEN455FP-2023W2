@@ -19,8 +19,21 @@ NUM_CLASSES = len(my_bidict)
 # And get the predicted label, which is a tensor of shape (batch_size,)
 # Begin of your code
 def get_label(model, model_input, device):
-    answer, _ = model.classify(model_input, len(my_bidict))
-    return answer
+    batch_size = model_input.shape[0]
+    
+    losses = torch.zeros(batch_size, NUM_CLASSES, device=device)
+
+    # Iterate through each possible label
+    for label in range(NUM_CLASSES):
+        labels = torch.full((batch_size,), label, dtype=torch.long, device=device)
+        logits = model(model_input, labels)
+        log_prob = discretized_mix_logistic_loss(model_input, logits, sum_all=False)
+        losses[:, label] = log_prob
+
+    # The argmin here gives the index of the label with the smallest loss, which is the predicted label
+    predictions = torch.argmin(losses, dim=1)
+
+    return predictions
 # End of your code
 
 def classifier(model, data_loader, device):
