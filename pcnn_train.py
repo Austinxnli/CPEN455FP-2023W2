@@ -23,10 +23,10 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     deno =  args.batch_size * np.prod(args.obs) * np.log(2.)        
     loss_tracker = mean_tracker()
     
-    for batch_idx, item in enumerate(tqdm(data_loader)):
-        model_input, label = item
-        label = label.to(device)
+    for batch_idx, (model_input, label_names) in enumerate(tqdm(data_loader)):
         model_input = model_input.to(device)
+        labels = [my_bidict[name] for name in label_names]
+        labels = torch.tensor(labels, dtype=torch.int64).to(device)
 
         if mode == "test":
             label = torch.full((args.batch_size,),0)
