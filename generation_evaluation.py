@@ -17,10 +17,11 @@ import torch
 # Begin of your code
 sample_op = lambda x : sample_from_discretized_mix_logistic(x, 5)
 def my_sample(model, gen_data_dir, sample_batch_size = 25, obs = (3,32,32), sample_op = sample_op):
-    for label in my_bidict:
+    model.load_state_dict(torch.load('models/conditional_pixelcnn.pth'))
+    for label, label_number in my_bidict.items():
         print(f"Label: {label}")
         #generate images for each label, each label has 25 images
-        sample_t = sample(model, sample_batch_size, obs, sample_op)
+        sample_t = sample(model, sample_batch_size, obs, sample_op, label_number)
         sample_t = rescaling_inv(sample_t)
         save_images(sample_t, os.path.join(gen_data_dir), label=label)
     pass
