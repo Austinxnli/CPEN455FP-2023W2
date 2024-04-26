@@ -116,27 +116,26 @@ skip connection parameter : 0 = no skip connection
                             2 = skip connection where skip input size === 2 * input size
 '''
 class gated_resnet(nn.Module):
-    def __init__(self, num_filters, conv_op, nonlinearity, skip_connection=0, use_labels=False):
+    def __init__(self, num_filters, conv_op, nonlinearity=concat_elu, skip_connection=0):
         super(gated_resnet, self).__init__()
         self.skip_connection = skip_connection
-        self.use_labels = use_labels
         self.nonlinearity = nonlinearity
-        self.conv_input = conv_op(2 * num_filters, num_filters)
+        self.conv_input = conv_op(2 * num_filters, num_filters) # cuz of concat elu
 
-        if skip_connection != 0:
+        if skip_connection != 0 :
             self.nin_skip = nin(2 * skip_connection * num_filters, num_filters)
 
         self.dropout = nn.Dropout2d(0.5)
         self.conv_out = conv_op(2 * num_filters, 2 * num_filters)
 
-    def forward(self, x, a=None, labels=None):
+
+    def forward(self, og_x, a=None):
+        x = self.conv_input(self.nonlinearity(og_x))
+        if a is not None :
+            x += self.nin_skip(self.nonlinearity(a))
         x = self.nonlinearity(x)
-        if self.use_labels and labels is not None:
-            x = x + labels  # Add label embeddings
-        x = self.conv_input(x)
-        if a is not None:
-            x = x + self.nin_skip(self.nonlinearity(a))
         x = self.dropout(x)
         x = self.conv_out(x)
         a, b = torch.chunk(x, 2, dim=1)
-        return a + torch.sigmoid(b) * x
+        c3 = a * F.sigmoid(b)
+        return og_x + c3
