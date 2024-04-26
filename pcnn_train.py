@@ -24,9 +24,18 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     loss_tracker = mean_tracker()
     
     for batch_idx, item in enumerate(tqdm(data_loader)):
-        model_input, _ = item
+        model_input, categories = item
         model_input = model_input.to(device)
-        model_output = model(model_input)
+
+        # Use fixed label for test set
+        if mode == 'test':
+            class_labels = torch.full((args.batch_size,), 0).to(device)
+        else:
+            # Convert categories to labels
+            class_labels = [my_bidict[item] for item in categories]
+            class_labels = torch.tensor(class_labels, dtype=torch.int64).to(device)
+
+        model_output = model(model_input, class_labels)
         loss = loss_op(model_input, model_output)
         loss_tracker.update(loss.item()/deno)
         if mode == 'training':
@@ -66,11 +75,11 @@ if __name__ == '__main__':
                         help='Observation shape')
     
     # model
-    parser.add_argument('-q', '--nr_resnet', type=int, default=5,
+    parser.add_argument('-q', '--nr_resnet', type=int, default=1,
                         help='Number of residual blocks per stage of the model')
-    parser.add_argument('-n', '--nr_filters', type=int, default=160,
+    parser.add_argument('-n', '--nr_filters', type=int, default=40,
                         help='Number of filters to use across the model. Higher = larger model.')
-    parser.add_argument('-m', '--nr_logistic_mix', type=int, default=10,
+    parser.add_argument('-m', '--nr_logistic_mix', type=int, default=5,
                         help='Number of logistic components in the mixture. Higher = more flexible model')
     parser.add_argument('-l', '--lr', type=float,
                         default=0.0002, help='Base learning rate')
@@ -119,7 +128,8 @@ if __name__ == '__main__':
 
     #set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    kwargs = {'num_workers':1, 'pin_memory':True, 'drop_last':True}
+    print(device)
+    kwargs = {'num_workers':0, 'pin_memory':True, 'drop_last':True}
 
     # set data
     if "mnist" in args.dataset:
@@ -183,8 +193,7 @@ if __name__ == '__main__':
 
     if args.load_params:
         model.load_state_dict(torch.load(args.load_params))
-        model = model.to(device)
-        print(f'MODEL PARAMETERS LOADED: {args.load_params}')
+        print('model parameters loaded')
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=args.lr_decay)
@@ -201,7 +210,6 @@ if __name__ == '__main__':
         
         # decrease learning rate
         scheduler.step()
-        # comment this out when running conditionally cuz we dont wanna run mode=test
         # train_or_test(model = model,
         #               data_loader = test_loader,
         #               optimizer = optimizer,
@@ -221,59 +229,31 @@ if __name__ == '__main__':
                       mode = 'val')
         
         if epoch % args.sampling_interval == 0:
-
             print('......sampling......')
+
+            # Sample over all classes
+            for label in range(4):
+                sample_t = sample(model, label, args.sample_batch_size, args.obs, sample_op)
+                sample_t = rescaling_inv(sample_t)
+                save_images(sample_t, args.sample_dir, label)
+                sample_result = wandb.Image(sample_t, caption="epoch {}".format(epoch))
             
-            # Iterate through all the classes 
-        for class_label in range(4):
-            print(f"Class {class_label}: Start Sampling")
-            sample_t = sample(model, args.sample_batch_size, args.obs, sample_op, class_label)
-            sample_t = rescaling_inv(sample_t)
-            
-            # Save sampled images
-            save_images(sample_t, args.sample_dir, class_label)
+            gen_data_dir = args.sample_dir
+            ref_data_dir = args.data_dir +'/test'
+            paths = [gen_data_dir, ref_data_dir]
+            try:
+                fid_score = calculate_fid_given_paths(paths, 32, device, dims=192)
+                print("Dimension {:d} works! fid score: {}".format(192, fid_score))
+            except:
+                print("Dimension {:d} fails!".format(192))
 
             if args.en_wandb:
-                sample_result = wandb.Image(sample_t, caption=f"Class {class_label}_epoch {epoch}")
-                wandb.log({f"Class{class_label} Samples": sample_result})
-
-        # Log Overall FID Score
-        gen_data_dir = args.sample_dir
-        ref_data_dir = args.data_dir +'/test'
-        paths = [gen_data_dir, ref_data_dir]
-        try:
-            fid_score = calculate_fid_given_paths(paths, 32, device, dims=192)
-            print("Dimension {:d} works! fid score: {}".format(192, fid_score))
-        except:
-            print("Dimension {:d} fails!".format(192))
-
-        if args.en_wandb:
-            wandb.log({"FID": fid_score})
-
-        # # Sample over all classes
-        # for label in range(4):
-        #     sample_t = sample(model, args.sample_batch_size, args.obs, sample_op, label)
-        #     sample_t = rescaling_inv(sample_t)
-        #     save_images(sample_t, args.sample_dir, label)
-        #     sample_result = wandb.Image(sample_t, caption="epoch {}".format(epoch))
-        
-        # gen_data_dir = args.sample_dir
-        # ref_data_dir = args.data_dir +'/test'
-        # paths = [gen_data_dir, ref_data_dir]
-        # try:
-        #     fid_score = calculate_fid_given_paths(paths, 32, device, dims=192)
-        #     print("Dimension {:d} works! fid score: {}".format(192, fid_score))
-        # except:
-        #     print("Dimension {:d} fails!".format(192))
-
-        # if args.en_wandb:
-        #         wandb.log({"samples": sample_result,
-        #                     "FID": fid_score})
+                    wandb.log({"samples": sample_result,
+                                "FID": fid_score})
         
         if (epoch + 1) % args.save_interval == 0: 
             if not os.path.exists("models"):
                 os.makedirs("models")
             torch.save(model.state_dict(), 'models/{}_{}.pth'.format(model_name, epoch))
-
-# Save the last model
-torch.save(model.state_dict(), "models/Previous.pth")
+    # Save completed model
+    torch.save(model.state_dict(), 'models/conditional_pixelcnn.pth')
