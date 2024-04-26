@@ -20,13 +20,17 @@ NUM_CLASSES = len(my_bidict)
 # Begin of your code
 def get_label(model, model_input, device):
     B, D, H, W = model_input.shape
+    log_probs = torch.zeros((NUM_CLASSES, B))
 
-    answer = model(model_input, None, device)  # Assume model handles missing labels
-    all_log_probs = discretized_mix_logistic_loss(model_input, answer) # Function and Implementation referenced from online source
+    # label is the class label
+    for label in range(NUM_CLASSES):
+        labels = torch.full((B,), label)
+        answer = model(model_input, labels, device)
+        log_probs[label] = log_prob_conditional_per_batch_elem(model_input, answer)
 
-    predicted_class = torch.argmax(all_log_probs, dim=0)
+    classifications = torch.argmax(log_probs, dim=0)
 
-    return predicted_class
+    return classifications
 # End of your code
 
 def classifier(model, data_loader, device):
@@ -81,4 +85,5 @@ if __name__ == '__main__':
     print('model parameters loaded')
     acc = classifier(model = model, data_loader = dataloader, device = device)
     print(f"Accuracy: {acc}")
+        
         

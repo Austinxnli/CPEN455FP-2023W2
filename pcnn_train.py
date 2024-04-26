@@ -29,12 +29,13 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
 
         # Use fixed label for test set
         if mode == 'test':
-            labels = torch.full((args.batch_size,), 0).to(device)
+            class_labels = torch.full((args.batch_size,), 0).to(device)
         else:
-            labels = [my_bidict[item] for item in categories]
-            labels = torch.tensor(labels, dtype=torch.int64).to(device)
+            # Convert categories to labels
+            class_labels = [my_bidict[item] for item in categories]
+            class_labels = torch.tensor(class_labels, dtype=torch.int64).to(device)
 
-        model_output = model(model_input, labels)
+        model_output = model(model_input, class_labels)
         loss = loss_op(model_input, model_output)
         loss_tracker.update(loss.item()/deno)
         if mode == 'training':
