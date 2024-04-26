@@ -28,11 +28,9 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
         model_input, categories = item
         model_input = model_input.to(device)
 
-        # Use fixed label for test set
         if mode == 'test':
             labels = torch.full((args.batch_size,), 0).to(device)
         else:
-            # Convert categories to labels
             labels = [my_bidict[item] for item in categories]
             labels = torch.tensor(labels, dtype=torch.int64).to(device)
 
