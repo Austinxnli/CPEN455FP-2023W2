@@ -58,8 +58,8 @@ class AbsolutePositionalEncoding(nn.Module):
         nn.init.normal_(self.W)
 
     def forward(self, x):
-        B, N, D = x.shape
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        _, N, _ = x.shape
         out = x.to(device) + self.W.to(device)[0: N]
         return out
 
@@ -108,7 +108,6 @@ class PixelCNN(nn.Module):
         num_mix = 3 if self.input_channels == 1 else 10
         self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
         self.init_padding = None
-
         self.class_encoding = AbsolutePositionalEncoding(nr_filters)
 
 
@@ -144,15 +143,12 @@ class PixelCNN(nn.Module):
 
         class_embeddings = torch.zeros(B, 1, D, device=ul_list[0].device)
         class_embeddings[range(B), 0, labels] = 1
-
         positional_encoding = self.class_encoding(class_embeddings)
-
         positional_encoding = positional_encoding.permute(0, 2, 1).unsqueeze(3)
 
-        for j in range(len(ul_list)):
-            # Add positional encoding to encoding layer
-            ul_list[j] += positional_encoding
-            u_list[j] += positional_encoding
+        for i in range(len(ul_list)):
+            ul_list[i] += positional_encoding
+            u_list[i] += positional_encoding
 
         ###    DOWN PASS    ###
         u  = u_list.pop()
