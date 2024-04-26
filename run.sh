@@ -8,5 +8,5 @@ python pcnn_train.py \
 --nr_filters 40 \
 --nr_logistic_mix 5 \
 --lr_decay 0.999995 \
---max_epochs 5 \
+--max_epochs 50 \
 --en_wandb True \
