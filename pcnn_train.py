@@ -24,18 +24,14 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     loss_tracker = mean_tracker()
     
     for batch_idx, item in enumerate(tqdm(data_loader)):
-
-        # Extract the category (label) for conditional training
-        model_input, _ , category = item
-        category = category.to(device)
+        model_input, label = item
+        label = label.to(device)
         model_input = model_input.to(device)
 
-        # During the testing mode, the category should be tensor 0
         if mode == "test":
-            category = torch.full((args.batch_size,),0)
+            label = torch.full((args.batch_size,),0)
 
-        # Add the category to the model for conditional training
-        model_output = model(model_input, category)
+        model_output = model(model_input, label)
         loss = loss_op(model_input, model_output)
         loss_tracker.update(loss.item()/deno)
         if mode == 'training':
