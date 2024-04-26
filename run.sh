@@ -1,6 +1,6 @@
 python pcnn_train.py \
---batch_size 16 \
---sample_batch_size 50 \
+--batch_size 8 \
+--sample_batch_size 16 \
 --sampling_interval 25 \
 --save_interval 25 \
 --dataset cpen455 \
@@ -8,5 +8,5 @@ python pcnn_train.py \
 --nr_filters 40 \
 --nr_logistic_mix 5 \
 --lr_decay 0.999995 \
---max_epochs 20 \
+--max_epochs 10 \
 --en_wandb True \
