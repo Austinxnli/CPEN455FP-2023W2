@@ -49,7 +49,7 @@ class PixelCNNLayer_down(nn.Module):
 
         return u, ul
 
-# Using PA2 for reference
+# Class used to generate label embeddings from PA2
 class AbsolutePositionalEncoding(nn.Module):
     MAX_LEN = 4
     def __init__(self, d_model):
@@ -58,12 +58,22 @@ class AbsolutePositionalEncoding(nn.Module):
         nn.init.normal_(self.W)
 
     def forward(self, x):
+        """
+        args:
+            x: shape B x N x D
+        returns:
+            out: shape B x N x D
+        START BLOCK
+        """
         B, N, D = x.shape
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         out = x.to(device) + self.W.to(device)[0: N]
 
+        """
+        END BLOCK
+        """
         return out
 
 class PixelCNN(nn.Module):
@@ -112,6 +122,7 @@ class PixelCNN(nn.Module):
         self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
         self.init_padding = None
 
+        # Function used to generate label embeddings
         self.class_encoding = AbsolutePositionalEncoding(nr_filters)
 
 
@@ -148,9 +159,12 @@ class PixelCNN(nn.Module):
 
         class_embeddings = torch.zeros(B, 1, D)
         for i in range(B):
+            # use D dimension for one-hot class label
             class_embeddings[i][0][class_labels[i]] = 1
 
         positional_encoding = self.class_encoding(class_embeddings)
+
+        # Make positional_encoding B x D x 1 x 1
         positional_encoding = positional_encoding.permute(0,2,1)
         positional_encoding = positional_encoding.unsqueeze(3)
 
@@ -178,7 +192,7 @@ class PixelCNN(nn.Module):
 
         return x_out
     
-
+    
 class random_classifier(nn.Module):
     def __init__(self, NUM_CLASSES):
         super(random_classifier, self).__init__()
@@ -191,4 +205,5 @@ class random_classifier(nn.Module):
         torch.save(self.state_dict(), 'models/conditional_pixelcnn.pth')
     def forward(self, x, device):
         return torch.randint(0, self.NUM_CLASSES, (x.shape[0],)).to(device)
-
+    
+    
