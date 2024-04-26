@@ -49,7 +49,7 @@ class PixelCNNLayer_down(nn.Module):
 
         return u, ul
 
-# Class used to generate label embeddings from PA2
+# Using PA2 for reference
 class AbsolutePositionalEncoding(nn.Module):
     MAX_LEN = 4
     def __init__(self, d_model):
@@ -58,22 +58,12 @@ class AbsolutePositionalEncoding(nn.Module):
         nn.init.normal_(self.W)
 
     def forward(self, x):
-        """
-        args:
-            x: shape B x N x D
-        returns:
-            out: shape B x N x D
-        START BLOCK
-        """
         B, N, D = x.shape
 
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         out = x.to(device) + self.W.to(device)[0: N]
 
-        """
-        END BLOCK
-        """
         return out
 
 class PixelCNN(nn.Module):
@@ -122,77 +112,63 @@ class PixelCNN(nn.Module):
         self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
         self.init_padding = None
 
-        # Function used to generate label embeddings
         self.class_encoding = AbsolutePositionalEncoding(nr_filters)
 
 
-    def forward(self, x, class_labels, sample=False):
-        # similar as done in the tf repo :
-        if self.init_padding is not sample:
-            xs = [int(y) for y in x.size()]
-            padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
-            self.init_padding = padding.cuda() if x.is_cuda else padding
+def forward(self, x, class_labels, sample=False):
+    # Initialize padding if necessary:
+    if self.init_padding is not sample:
+        xs = [int(y) for y in x.size()]
+        padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
+        self.init_padding = padding.cuda() if x.is_cuda else padding
 
-        if sample :
-            xs = [int(y) for y in x.size()]
-            padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
-            padding = padding.cuda() if x.is_cuda else padding
-            x = torch.cat((x, padding), 1)
+    # Add padding for sampling:
+    if sample:
+        xs = [int(y) for y in x.size()]
+        padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
+        padding = padding.cuda() if x.is_cuda else padding
+        x = torch.cat((x, padding), 1)
 
-        ###      UP PASS    ###
-        x = x if sample else torch.cat((x, self.init_padding), 1)
-        u_list  = [self.u_init(x)]
-        ul_list = [self.ul_init[0](x) + self.ul_init[1](x)]
-        for i in range(3):
-            # resnet block
-            u_out, ul_out = self.up_layers[i](u_list[-1], ul_list[-1])
-            u_list  += u_out
-            ul_list += ul_out
+    # Forward pass with or without sampling:
+    x = x if sample else torch.cat((x, self.init_padding), 1)
+    u_list = [self.u_init(x)]
+    ul_list = [self.ul_init[0](x) + self.ul_init[1](x)]
 
-            if i != 2:
-                # downscale (only twice)
-                u_list  += [self.downsize_u_stream[i](u_list[-1])]
-                ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
+    for i in range(3):
+        u_out, ul_out = self.up_layers[i](u_list[-1], ul_list[-1])
+        u_list += [u_out]
+        ul_list += [ul_out]
 
-        # Fuse labels encodings after down pass 
-        B, D, H, W = ul_list[0].shape
+        if i != 2:
+            u_list += [self.downsize_u_stream[i](u_list[-1])]
+            ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
 
-        class_embeddings = torch.zeros(B, 1, D)
-        for i in range(B):
-            # use D dimension for one-hot class label
-            class_embeddings[i][0][class_labels[i]] = 1
+    # Positional encoding:
+    B, D, H, W = ul_list[0].shape
+    class_embeddings = torch.zeros(B, D, 1).scatter_(1, class_labels.view(B, 1, 1), 1).to(x.device)
+    positional_encoding = self.class_encoding(class_embeddings.unsqueeze(-1)).permute(0, 2, 1, 3)
 
-        positional_encoding = self.class_encoding(class_embeddings)
+    for j in range(len(ul_list)):
+        ul_list[j] += positional_encoding
+        u_list[j] += positional_encoding
 
-        # Make positional_encoding B x D x 1 x 1
-        positional_encoding = positional_encoding.permute(0,2,1)
-        positional_encoding = positional_encoding.unsqueeze(3)
+    # Downward pass:
+    u, ul = u_list.pop(), ul_list.pop()
 
-        for j in range(len(ul_list)):
-            # Add positional encoding to encoding layer
-            ul_list[j] += positional_encoding
-            u_list[j] += positional_encoding
+    for i in range(3):
+        u, ul = self.down_layers[i](u, ul, u_list, ul_list)
 
-        ###    DOWN PASS    ###
-        u  = u_list.pop()
-        ul = ul_list.pop()
+        if i != 2:
+            u = self.upsize_u_stream[i](u)
+            ul = self.upsize_ul_stream[i](ul)
 
-        for i in range(3):
-            # resnet block
-            u, ul = self.down_layers[i](u, ul, u_list, ul_list)
+    x_out = self.nin_out(F.elu(ul))
 
-            # upscale (only twice)
-            if i != 2 :
-                u  = self.upsize_u_stream[i](u)
-                ul = self.upsize_ul_stream[i](ul)
+    assert len(u_list) == len(ul_list) == 0, pdb.set_trace()
 
-        x_out = self.nin_out(F.elu(ul))
-
-        assert len(u_list) == len(ul_list) == 0, pdb.set_trace()
-
-        return x_out
+    return x_out
     
-    
+
 class random_classifier(nn.Module):
     def __init__(self, NUM_CLASSES):
         super(random_classifier, self).__init__()
@@ -205,3 +181,4 @@ class random_classifier(nn.Module):
         torch.save(self.state_dict(), 'models/conditional_pixelcnn.pth')
     def forward(self, x, device):
         return torch.randint(0, self.NUM_CLASSES, (x.shape[0],)).to(device)
+
