@@ -23,11 +23,19 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     deno =  args.batch_size * np.prod(args.obs) * np.log(2.)        
     loss_tracker = mean_tracker()
     
-    for batch_idx, (model_input, label_names) in enumerate(tqdm(data_loader)):
+    for batch_idx, item in enumerate(tqdm(data_loader)):
+
+        # Extract the category (label) for conditional training
+        model_input, _ , category = item
+        category = category.to(device)
         model_input = model_input.to(device)
-        labels = [my_bidict[name] for name in label_names]
-        labels = torch.tensor(labels, dtype=torch.int64).to(device)
-        model_output = model(model_input)
+
+        # During the testing mode, the category should be tensor 0
+        if mode == "test":
+            category = torch.full((args.batch_size,),0)
+
+        # Add the category to the model for conditional training
+        model_output = model(model_input, category)
         loss = loss_op(model_input, model_output)
         loss_tracker.update(loss.item()/deno)
         if mode == 'training':
@@ -184,7 +192,8 @@ if __name__ == '__main__':
 
     if args.load_params:
         model.load_state_dict(torch.load(args.load_params))
-        print('model parameters loaded')
+        model = model.to(device)
+        print(f'MODEL PARAMETERS LOADED: {args.load_params}')
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=args.lr_decay)
@@ -201,14 +210,15 @@ if __name__ == '__main__':
         
         # decrease learning rate
         scheduler.step()
-        train_or_test(model = model,
-                      data_loader = test_loader,
-                      optimizer = optimizer,
-                      loss_op = loss_op,
-                      device = device,
-                      args = args,
-                      epoch = epoch,
-                      mode = 'test')
+        # comment this out when running conditionally cuz we dont wanna run mode=test
+        # train_or_test(model = model,
+        #               data_loader = test_loader,
+        #               optimizer = optimizer,
+        #               loss_op = loss_op,
+        #               device = device,
+        #               args = args,
+        #               epoch = epoch,
+        #               mode = 'test')
         
         train_or_test(model = model,
                       data_loader = val_loader,
@@ -220,26 +230,59 @@ if __name__ == '__main__':
                       mode = 'val')
         
         if epoch % args.sampling_interval == 0:
+
             print('......sampling......')
-            sample_t = sample(model, args.sample_batch_size, args.obs, sample_op)
-            sample_t = rescaling_inv(sample_t)
-            save_images(sample_t, args.sample_dir)
-            sample_result = wandb.Image(sample_t, caption="epoch {}".format(epoch))
             
-            gen_data_dir = args.sample_dir
-            ref_data_dir = args.data_dir +'/test'
-            paths = [gen_data_dir, ref_data_dir]
-            try:
-                fid_score = calculate_fid_given_paths(paths, 32, device, dims=192)
-                print("Dimension {:d} works! fid score: {}".format(192, fid_score))
-            except:
-                print("Dimension {:d} fails!".format(192))
-                
+            # Iterate through all the classes 
+        for class_label in range(4):
+            print(f"Class {class_label}: Start Sampling")
+            sample_t = sample(model, args.sample_batch_size, args.obs, sample_op, class_label)
+            sample_t = rescaling_inv(sample_t)
+            
+            # Save sampled images
+            save_images(sample_t, args.sample_dir, class_label)
+
             if args.en_wandb:
-                wandb.log({"samples": sample_result,
-                            "FID": fid_score})
+                sample_result = wandb.Image(sample_t, caption=f"Class {class_label}_epoch {epoch}")
+                wandb.log({f"Class{class_label} Samples": sample_result})
+
+        # Log Overall FID Score
+        gen_data_dir = args.sample_dir
+        ref_data_dir = args.data_dir +'/test'
+        paths = [gen_data_dir, ref_data_dir]
+        try:
+            fid_score = calculate_fid_given_paths(paths, 32, device, dims=192)
+            print("Dimension {:d} works! fid score: {}".format(192, fid_score))
+        except:
+            print("Dimension {:d} fails!".format(192))
+
+        if args.en_wandb:
+            wandb.log({"FID": fid_score})
+
+        # # Sample over all classes
+        # for label in range(4):
+        #     sample_t = sample(model, args.sample_batch_size, args.obs, sample_op, label)
+        #     sample_t = rescaling_inv(sample_t)
+        #     save_images(sample_t, args.sample_dir, label)
+        #     sample_result = wandb.Image(sample_t, caption="epoch {}".format(epoch))
+        
+        # gen_data_dir = args.sample_dir
+        # ref_data_dir = args.data_dir +'/test'
+        # paths = [gen_data_dir, ref_data_dir]
+        # try:
+        #     fid_score = calculate_fid_given_paths(paths, 32, device, dims=192)
+        #     print("Dimension {:d} works! fid score: {}".format(192, fid_score))
+        # except:
+        #     print("Dimension {:d} fails!".format(192))
+
+        # if args.en_wandb:
+        #         wandb.log({"samples": sample_result,
+        #                     "FID": fid_score})
         
         if (epoch + 1) % args.save_interval == 0: 
             if not os.path.exists("models"):
                 os.makedirs("models")
             torch.save(model.state_dict(), 'models/{}_{}.pth'.format(model_name, epoch))
+
+# Save the last model
+torch.save(model.state_dict(), "models/Previous.pth")
