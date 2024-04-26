@@ -60,7 +60,8 @@ class AbsolutePositionalEncoding(nn.Module):
     def forward(self, x):
         B, N, D = x.shape
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        return x + self.W[:N].to(device)
+        out = x.to(device) + self.W.to(device)[0: N]
+        return out
 
 class PixelCNN(nn.Module):
     def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
